@@ -1,0 +1,259 @@
+--[[
+	Auto Script for [Update 4.0] Larp Your Character! using AstraUiLib
+	Fixed: Bypassed File System Configs to prevent mobile executor crashes.
+]]
+
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local LocalPlayer = Players.LocalPlayer
+
+-- ===== LOAD UI SAFELY =====
+local success, Library = pcall(function()
+	return loadstring(game:HttpGet("https://raw.githubusercontent.com/Ali-lov3/AstraUiLib/refs/heads/main/Source.lua"))()
+end)
+
+if not success or not Library then
+	-- Fallback notification if the executor blocks GitHub links
+	local StarterGui = game:GetService("StarterGui")
+	StarterGui:SetCore("SendNotification", {
+		Title = "UI Error",
+		Text = "Your executor blocked the UI from loading.",
+		Duration = 5
+	})
+	return
+end
+
+-- ===== REMOTES SETUP =====
+local Remotes = {}
+local function GetRemote(name, className)
+	className = className or "RemoteEvent"
+	local remote = ReplicatedStorage:FindFirstChild(name)
+	if not remote then
+		remote = ReplicatedStorage:WaitForChild(name, 2) -- Reduced wait time to prevent hanging
+	end
+	if remote and remote:IsA(className) then
+		Remotes[name] = remote
+		return remote
+	end
+	return nil
+end
+
+GetRemote("BuyCrateEvent")
+GetRemote("RebirthEvent")
+GetRemote("TradeTitleEvent")
+GetRemote("EmoteEvent")
+GetRemote("PurchaseEvent")
+GetRemote("MIH")
+GetRemote("ClaimReward", "RemoteFunction")
+GetRemote("ClaimIndexReward", "RemoteFunction")
+GetRemote("CheckIndexRewards", "RemoteFunction")
+GetRemote("ClaimFollowBoost", "RemoteFunction")
+GetRemote("ClaimCashRunOrb", "RemoteFunction")
+GetRemote("ClaimGemRunOrb", "RemoteFunction")
+
+-- ===== STATE & LOGIC =====
+local State = {
+	AutoBuyCrates = false,
+	SelectedCrate = "Common Crate",
+	AutoMinigame = false,
+	SelectedMinigame = "Hakari",
+	AutoRebirth = false,
+	AutoTitles = false,
+	AutoClaimRewards = false,
+	Threads = {},
+	
+	CratePrices = {
+		["Common Crate"] = 100,
+		["Rare Crate"] = 500,
+		["Epic Crate"] = 2000,
+		["Legendary Crate"] = 10000,
+		["Mythic Crate"] = 50000,
+	},
+	
+	Minigames = {
+		"Hakari", "Naoya", "Ryu", "Subaru", "Yuta", "Yuji", "Choso",
+		"Mahoraga", "John", "Rabbit273", "Gojo", "Sukuna", "Thukuna",
+		"Inumaki", "Megumi", "Todo", "Kenjaku", "Takaba", "Toji",
+		"HeartGrapple", "Kashimo", "HeianSukuna", "Kurourushi", "MeiMei", "Nobara"
+	}
+}
+
+local function SafeFire(remote, ...)
+	if not remote then return false end
+	local s, r = pcall(function() return remote:FireServer(...) end)
+	return s
+end
+
+local function SafeInvoke(remote, ...)
+	if not remote then return false end
+	local s, r = pcall(function() return remote:InvokeServer(...) end)
+	return s
+end
+
+-- ===== AUTOMATION FUNCTIONS =====
+local function StartAutoBuyCrates()
+	if State.Threads.BuyCrates then return end
+	State.AutoBuyCrates = true
+	State.Threads.BuyCrates = task.spawn(function()
+		while State.AutoBuyCrates do
+			local price = State.CratePrices[State.SelectedCrate] or 100
+			SafeFire(Remotes.BuyCrateEvent, State.SelectedCrate)
+			SafeFire(Remotes.BuyCrateEvent, {Name = State.SelectedCrate, Amount = 1})
+			task.wait(1)
+		end
+		State.Threads.BuyCrates = nil
+	end)
+end
+
+local function StartAutoMinigame()
+	if State.Threads.Minigame then return end
+	State.AutoMinigame = true
+	State.Threads.Minigame = task.spawn(function()
+		while State.AutoMinigame do
+			SafeFire(Remotes.EmoteEvent, State.SelectedMinigame)
+			SafeFire(Remotes.MIH, "StartMinigame", State.SelectedMinigame)
+			task.wait(5)
+		end
+		State.Threads.Minigame = nil
+	end)
+end
+
+local function StartAutoRebirth()
+	if State.Threads.Rebirth then return end
+	State.AutoRebirth = true
+	State.Threads.Rebirth = task.spawn(function()
+		while State.AutoRebirth do
+			SafeFire(Remotes.RebirthEvent)
+			SafeFire(Remotes.RebirthEvent, true)
+			task.wait(2)
+		end
+		State.Threads.Rebirth = nil
+	end)
+end
+
+local function StartAutoTitles()
+	if State.Threads.Titles then return end
+	State.AutoTitles = true
+	State.Threads.Titles = task.spawn(function()
+		while State.AutoTitles do
+			SafeFire(Remotes.TradeTitleEvent, "ClaimAll")
+			SafeInvoke(Remotes.ClaimIndexReward, "All")
+			task.wait(10)
+		end
+		State.Threads.Titles = nil
+	end)
+end
+
+local function StartAutoClaimRewards()
+	if State.Threads.Rewards then return end
+	State.AutoClaimRewards = true
+	State.Threads.Rewards = task.spawn(function()
+		while State.AutoClaimRewards do
+			SafeInvoke(Remotes.ClaimReward)
+			SafeInvoke(Remotes.ClaimFollowBoost)
+			SafeInvoke(Remotes.ClaimCashRunOrb)
+			SafeInvoke(Remotes.ClaimGemRunOrb)
+			task.wait(30)
+		end
+		State.Threads.Rewards = nil
+	end)
+end
+
+-- ===== ASTRA UI SETUP =====
+local Window = Library.CreateWindow({
+	Title = "Larp Your Character!",
+	Logo = 0,
+	Anonymous = false,
+	-- ConfigFolder = "LarpAstraConfigs" -- [REMOVED TO PREVENT MOBILE CRASH]
+})
+
+local MainTab = Window:CreateTab({
+	Name = "Automation",
+	Icon = "zap"
+})
+
+local LeftSec = MainTab:CreateSection({
+	Name = "Crates & Minigames",
+	Side = "Left"
+})
+
+local RightSec = MainTab:CreateSection({
+	Name = "Rebirth & Rewards",
+	Side = "Right"
+})
+
+-- LEFT SECTION
+LeftSec:AddDropdown({
+	Name = "Select Crate",
+	Options = {"Common Crate", "Rare Crate", "Epic Crate", "Legendary Crate", "Mythic Crate"},
+	Default = State.SelectedCrate,
+	Callback = function(selected)
+		State.SelectedCrate = selected
+	end
+})
+
+LeftSec:AddToggle({
+	Name = "Auto Buy Crates",
+	Default = false,
+	Callback = function(state)
+		if state then StartAutoBuyCrates() else State.AutoBuyCrates = false end
+	end
+})
+
+LeftSec:AddDropdown({
+	Name = "Select Minigame",
+	Options = State.Minigames,
+	Default = State.SelectedMinigame,
+	Callback = function(selected)
+		State.SelectedMinigame = selected
+	end
+})
+
+LeftSec:AddToggle({
+	Name = "Auto Minigame",
+	Default = false,
+	Callback = function(state)
+		if state then StartAutoMinigame() else State.AutoMinigame = false end
+	end
+})
+
+-- RIGHT SECTION
+RightSec:AddToggle({
+	Name = "Auto Rebirth",
+	Default = false,
+	Callback = function(state)
+		if state then StartAutoRebirth() else State.AutoRebirth = false end
+	end
+})
+
+RightSec:AddButton({
+	Name = "Rebirth Once",
+	Callback = function()
+		SafeFire(Remotes.RebirthEvent)
+		SafeFire(Remotes.RebirthEvent, true)
+		Library.Notify({Title = "Rebirth", Text = "Triggered Rebirth once.", Icon = "check", Duration = 3})
+	end
+})
+
+RightSec:AddToggle({
+	Name = "Auto Claim Titles & Index",
+	Default = false,
+	Callback = function(state)
+		if state then StartAutoTitles() else State.AutoTitles = false end
+	end
+})
+
+RightSec:AddToggle({
+	Name = "Auto Claim All Rewards / Orbs",
+	Default = false,
+	Callback = function(state)
+		if state then StartAutoClaimRewards() else State.AutoClaimRewards = false end
+	end
+})
+
+Library.Notify({
+	Title = "Larp Your Character",
+	Text = "Astra UI successfully loaded!",
+	Icon = "check",
+	Duration = 5
+})
