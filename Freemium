@@ -1,36 +1,23 @@
 --[[
-	Auto Script for [Update 4.0] Larp Your Character! using AstraUiLib
-	Fixed: Bypassed File System Configs to prevent mobile executor crashes.
+	[Update 4.0] Larp Your Character!
+	100% Vanilla Custom UI - Mobile & PC Safe
 ]]
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local CoreGui = game:GetService("CoreGui")
+
 local LocalPlayer = Players.LocalPlayer
-
--- ===== LOAD UI SAFELY =====
-local success, Library = pcall(function()
-	return loadstring(game:HttpGet("https://raw.githubusercontent.com/Ali-lov3/AstraUiLib/refs/heads/main/Source.lua"))()
-end)
-
-if not success or not Library then
-	-- Fallback notification if the executor blocks GitHub links
-	local StarterGui = game:GetService("StarterGui")
-	StarterGui:SetCore("SendNotification", {
-		Title = "UI Error",
-		Text = "Your executor blocked the UI from loading.",
-		Duration = 5
-	})
-	return
-end
+-- Safely find where to put the UI (CoreGui is best, PlayerGui is fallback)
+local UI_PARENT = pcall(function() return CoreGui.Name end) and CoreGui or LocalPlayer:WaitForChild("PlayerGui")
 
 -- ===== REMOTES SETUP =====
 local Remotes = {}
 local function GetRemote(name, className)
 	className = className or "RemoteEvent"
-	local remote = ReplicatedStorage:FindFirstChild(name)
-	if not remote then
-		remote = ReplicatedStorage:WaitForChild(name, 2) -- Reduced wait time to prevent hanging
-	end
+	local remote = ReplicatedStorage:FindFirstChild(name) or ReplicatedStorage:WaitForChild(name, 2)
 	if remote and remote:IsA(className) then
 		Remotes[name] = remote
 		return remote
@@ -51,6 +38,18 @@ GetRemote("ClaimFollowBoost", "RemoteFunction")
 GetRemote("ClaimCashRunOrb", "RemoteFunction")
 GetRemote("ClaimGemRunOrb", "RemoteFunction")
 
+local function SafeFire(remote, ...)
+	if not remote then return false end
+	local s = pcall(function() remote:FireServer(...) end)
+	return s
+end
+
+local function SafeInvoke(remote, ...)
+	if not remote then return false end
+	local s = pcall(function() remote:InvokeServer(...) end)
+	return s
+end
+
 -- ===== STATE & LOGIC =====
 local State = {
 	AutoBuyCrates = false,
@@ -62,15 +61,8 @@ local State = {
 	AutoClaimRewards = false,
 	Threads = {},
 	
-	CratePrices = {
-		["Common Crate"] = 100,
-		["Rare Crate"] = 500,
-		["Epic Crate"] = 2000,
-		["Legendary Crate"] = 10000,
-		["Mythic Crate"] = 50000,
-	},
-	
-	Minigames = {
+	CratesList = {"Common Crate", "Rare Crate", "Epic Crate", "Legendary Crate", "Mythic Crate"},
+	MinigamesList = {
 		"Hakari", "Naoya", "Ryu", "Subaru", "Yuta", "Yuji", "Choso",
 		"Mahoraga", "John", "Rabbit273", "Gojo", "Sukuna", "Thukuna",
 		"Inumaki", "Megumi", "Todo", "Kenjaku", "Takaba", "Toji",
@@ -78,25 +70,12 @@ local State = {
 	}
 }
 
-local function SafeFire(remote, ...)
-	if not remote then return false end
-	local s, r = pcall(function() return remote:FireServer(...) end)
-	return s
-end
-
-local function SafeInvoke(remote, ...)
-	if not remote then return false end
-	local s, r = pcall(function() return remote:InvokeServer(...) end)
-	return s
-end
-
--- ===== AUTOMATION FUNCTIONS =====
+-- ===== AUTOMATION LOOPS =====
 local function StartAutoBuyCrates()
 	if State.Threads.BuyCrates then return end
 	State.AutoBuyCrates = true
 	State.Threads.BuyCrates = task.spawn(function()
 		while State.AutoBuyCrates do
-			local price = State.CratePrices[State.SelectedCrate] or 100
 			SafeFire(Remotes.BuyCrateEvent, State.SelectedCrate)
 			SafeFire(Remotes.BuyCrateEvent, {Name = State.SelectedCrate, Amount = 1})
 			task.wait(1)
@@ -159,101 +138,232 @@ local function StartAutoClaimRewards()
 	end)
 end
 
--- ===== ASTRA UI SETUP =====
-local Window = Library.CreateWindow({
-	Title = "Larp Your Character!",
-	Logo = 0,
-	Anonymous = false,
-	-- ConfigFolder = "LarpAstraConfigs" -- [REMOVED TO PREVENT MOBILE CRASH]
-})
+-- ===== CLEANUP OLD UI =====
+local existingUI = UI_PARENT:FindFirstChild("LarpCustomUI")
+if existingUI then existingUI:Destroy() end
 
-local MainTab = Window:CreateTab({
-	Name = "Automation",
-	Icon = "zap"
-})
+-- ===== CREATE CUSTOM UI =====
+local ScreenGui = Instance.new("ScreenGui")
+ScreenGui.Name = "LarpCustomUI"
+ScreenGui.ResetOnSpawn = false
+ScreenGui.Parent = UI_PARENT
 
-local LeftSec = MainTab:CreateSection({
-	Name = "Crates & Minigames",
-	Side = "Left"
-})
+-- Floating Toggle Button (For Mobile)
+local ToggleUIBtn = Instance.new("TextButton")
+ToggleUIBtn.Size = UDim2.new(0, 50, 0, 50)
+ToggleUIBtn.Position = UDim2.new(0, 10, 0.4, 0)
+ToggleUIBtn.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+ToggleUIBtn.Text = "UI"
+ToggleUIBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+ToggleUIBtn.Font = Enum.Font.GothamBold
+ToggleUIBtn.TextSize = 18
+ToggleUIBtn.BorderSizePixel = 2
+ToggleUIBtn.BorderColor3 = Color3.fromRGB(0, 170, 120)
+ToggleUIBtn.Active = true
+ToggleUIBtn.Draggable = true -- Allows moving the button on mobile
+ToggleUIBtn.Parent = ScreenGui
 
-local RightSec = MainTab:CreateSection({
-	Name = "Rebirth & Rewards",
-	Side = "Right"
-})
+local ToggleCorner = Instance.new("UICorner")
+ToggleCorner.CornerRadius = UDim.new(0, 12)
+ToggleCorner.Parent = ToggleUIBtn
 
--- LEFT SECTION
-LeftSec:AddDropdown({
-	Name = "Select Crate",
-	Options = {"Common Crate", "Rare Crate", "Epic Crate", "Legendary Crate", "Mythic Crate"},
-	Default = State.SelectedCrate,
-	Callback = function(selected)
-		State.SelectedCrate = selected
-	end
-})
+-- Main Frame
+local MainFrame = Instance.new("Frame")
+MainFrame.Size = UDim2.new(0, 320, 0, 400)
+MainFrame.Position = UDim2.new(0.5, -160, 0.5, -200)
+MainFrame.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
+MainFrame.BorderSizePixel = 0
+MainFrame.Active = true
+MainFrame.Draggable = true
+MainFrame.Visible = false
+MainFrame.Parent = ScreenGui
 
-LeftSec:AddToggle({
-	Name = "Auto Buy Crates",
-	Default = false,
-	Callback = function(state)
-		if state then StartAutoBuyCrates() else State.AutoBuyCrates = false end
-	end
-})
+local MainCorner = Instance.new("UICorner")
+MainCorner.CornerRadius = UDim.new(0, 8)
+MainCorner.Parent = MainFrame
 
-LeftSec:AddDropdown({
-	Name = "Select Minigame",
-	Options = State.Minigames,
-	Default = State.SelectedMinigame,
-	Callback = function(selected)
-		State.SelectedMinigame = selected
-	end
-})
+-- Title
+local TitleLabel = Instance.new("TextLabel")
+TitleLabel.Size = UDim2.new(1, 0, 0, 40)
+TitleLabel.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+TitleLabel.Text = "Larp Your Character Hub"
+TitleLabel.TextColor3 = Color3.fromRGB(0, 170, 120)
+TitleLabel.Font = Enum.Font.GothamBold
+TitleLabel.TextSize = 16
+TitleLabel.BorderSizePixel = 0
+TitleLabel.Parent = MainFrame
 
-LeftSec:AddToggle({
-	Name = "Auto Minigame",
-	Default = false,
-	Callback = function(state)
-		if state then StartAutoMinigame() else State.AutoMinigame = false end
-	end
-})
+local TitleCorner = Instance.new("UICorner")
+TitleCorner.CornerRadius = UDim.new(0, 8)
+TitleCorner.Parent = TitleLabel
 
--- RIGHT SECTION
-RightSec:AddToggle({
-	Name = "Auto Rebirth",
-	Default = false,
-	Callback = function(state)
-		if state then StartAutoRebirth() else State.AutoRebirth = false end
-	end
-})
+-- Scrolling Container
+local ScrollFrame = Instance.new("ScrollingFrame")
+ScrollFrame.Size = UDim2.new(1, -20, 1, -50)
+ScrollFrame.Position = UDim2.new(0, 10, 0, 45)
+ScrollFrame.BackgroundTransparency = 1
+ScrollFrame.ScrollBarThickness = 4
+ScrollFrame.CanvasSize = UDim2.new(0, 0, 0, 0)
+ScrollFrame.AutomaticCanvasSize = Enum.AutomaticSize.Y
+ScrollFrame.Parent = MainFrame
 
-RightSec:AddButton({
-	Name = "Rebirth Once",
-	Callback = function()
-		SafeFire(Remotes.RebirthEvent)
-		SafeFire(Remotes.RebirthEvent, true)
-		Library.Notify({Title = "Rebirth", Text = "Triggered Rebirth once.", Icon = "check", Duration = 3})
-	end
-})
+local UIListLayout = Instance.new("UIListLayout")
+UIListLayout.Padding = UDim.new(0, 10)
+UIListLayout.SortOrder = Enum.SortOrder.LayoutOrder
+UIListLayout.Parent = ScrollFrame
 
-RightSec:AddToggle({
-	Name = "Auto Claim Titles & Index",
-	Default = false,
-	Callback = function(state)
-		if state then StartAutoTitles() else State.AutoTitles = false end
-	end
-})
+ToggleUIBtn.MouseButton1Click:Connect(function()
+	MainFrame.Visible = not MainFrame.Visible
+end)
 
-RightSec:AddToggle({
-	Name = "Auto Claim All Rewards / Orbs",
-	Default = false,
-	Callback = function(state)
-		if state then StartAutoClaimRewards() else State.AutoClaimRewards = false end
-	end
-})
+-- UI Builder Functions
+local function CreateToggle(name, callback)
+	local Frame = Instance.new("Frame")
+	Frame.Size = UDim2.new(1, 0, 0, 40)
+	Frame.BackgroundColor3 = Color3.fromRGB(35, 35, 35)
+	Frame.Parent = ScrollFrame
+	Instance.new("UICorner", Frame).CornerRadius = UDim.new(0, 6)
+	
+	local Label = Instance.new("TextLabel")
+	Label.Size = UDim2.new(0.7, 0, 1, 0)
+	Label.Position = UDim2.new(0, 10, 0, 0)
+	Label.BackgroundTransparency = 1
+	Label.Text = name
+	Label.TextColor3 = Color3.fromRGB(255, 255, 255)
+	Label.Font = Enum.Font.GothamSemibold
+	Label.TextSize = 14
+	Label.TextXAlignment = Enum.TextXAlignment.Left
+	Label.Parent = Frame
+	
+	local Btn = Instance.new("TextButton")
+	Btn.Size = UDim2.new(0, 60, 0, 30)
+	Btn.Position = UDim2.new(1, -70, 0.5, -15)
+	Btn.BackgroundColor3 = Color3.fromRGB(255, 50, 50)
+	Btn.Text = "OFF"
+	Btn.TextColor3 = Color3.fromRGB(255, 255, 255)
+	Btn.Font = Enum.Font.GothamBold
+	Btn.TextSize = 12
+	Btn.Parent = Frame
+	Instance.new("UICorner", Btn).CornerRadius = UDim.new(0, 6)
+	
+	local state = false
+	Btn.MouseButton1Click:Connect(function()
+		state = not state
+		Btn.Text = state and "ON" or "OFF"
+		Btn.BackgroundColor3 = state and Color3.fromRGB(50, 200, 50) or Color3.fromRGB(255, 50, 50)
+		callback(state)
+	end)
+end
 
-Library.Notify({
-	Title = "Larp Your Character",
-	Text = "Astra UI successfully loaded!",
-	Icon = "check",
-	Duration = 5
-})
+local function CreateButton(name, callback)
+	local Btn = Instance.new("TextButton")
+	Btn.Size = UDim2.new(1, 0, 0, 40)
+	Btn.BackgroundColor3 = Color3.fromRGB(45, 45, 45)
+	Btn.Text = name
+	Btn.TextColor3 = Color3.fromRGB(255, 255, 255)
+	Btn.Font = Enum.Font.GothamBold
+	Btn.TextSize = 14
+	Btn.Parent = ScrollFrame
+	Instance.new("UICorner", Btn).CornerRadius = UDim.new(0, 6)
+	
+	Btn.MouseButton1Click:Connect(callback)
+end
+
+local function CreateSelector(name, optionsList, updateStateCallback)
+	local Frame = Instance.new("Frame")
+	Frame.Size = UDim2.new(1, 0, 0, 55)
+	Frame.BackgroundColor3 = Color3.fromRGB(35, 35, 35)
+	Frame.Parent = ScrollFrame
+	Instance.new("UICorner", Frame).CornerRadius = UDim.new(0, 6)
+	
+	local Label = Instance.new("TextLabel")
+	Label.Size = UDim2.new(1, 0, 0, 20)
+	Label.Position = UDim2.new(0, 10, 0, 5)
+	Label.BackgroundTransparency = 1
+	Label.Text = name
+	Label.TextColor3 = Color3.fromRGB(200, 200, 200)
+	Label.Font = Enum.Font.GothamSemibold
+	Label.TextSize = 12
+	Label.TextXAlignment = Enum.TextXAlignment.Left
+	Label.Parent = Frame
+	
+	local LeftBtn = Instance.new("TextButton")
+	LeftBtn.Size = UDim2.new(0, 30, 0, 25)
+	LeftBtn.Position = UDim2.new(0, 10, 0, 25)
+	LeftBtn.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
+	LeftBtn.Text = "<"
+	LeftBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+	LeftBtn.Font = Enum.Font.GothamBold
+	LeftBtn.Parent = Frame
+	Instance.new("UICorner", LeftBtn).CornerRadius = UDim.new(0, 4)
+	
+	local RightBtn = Instance.new("TextButton")
+	RightBtn.Size = UDim2.new(0, 30, 0, 25)
+	RightBtn.Position = UDim2.new(1, -40, 0, 25)
+	RightBtn.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
+	RightBtn.Text = ">"
+	RightBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+	RightBtn.Font = Enum.Font.GothamBold
+	RightBtn.Parent = Frame
+	Instance.new("UICorner", RightBtn).CornerRadius = UDim.new(0, 4)
+	
+	local Display = Instance.new("TextLabel")
+	Display.Size = UDim2.new(1, -90, 0, 25)
+	Display.Position = UDim2.new(0, 45, 0, 25)
+	Display.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
+	Display.Text = optionsList[1]
+	Display.TextColor3 = Color3.fromRGB(255, 255, 255)
+	Display.Font = Enum.Font.Gotham
+	Display.TextSize = 13
+	Display.Parent = Frame
+	Instance.new("UICorner", Display).CornerRadius = UDim.new(0, 4)
+	
+	local index = 1
+	LeftBtn.MouseButton1Click:Connect(function()
+		index = index - 1
+		if index < 1 then index = #optionsList end
+		Display.Text = optionsList[index]
+		updateStateCallback(optionsList[index])
+	end)
+	
+	RightBtn.MouseButton1Click:Connect(function()
+		index = index + 1
+		if index > #optionsList then index = 1 end
+		Display.Text = optionsList[index]
+		updateStateCallback(optionsList[index])
+	end)
+end
+
+-- ===== BUILD MENU INTERFACE =====
+CreateSelector("Select Crate", State.CratesList, function(val)
+	State.SelectedCrate = val
+end)
+
+CreateToggle("Auto Buy Crates", function(val)
+	if val then StartAutoBuyCrates() else State.AutoBuyCrates = false end
+end)
+
+CreateSelector("Select Minigame", State.MinigamesList, function(val)
+	State.SelectedMinigame = val
+end)
+
+CreateToggle("Auto Minigame", function(val)
+	if val then StartAutoMinigame() else State.AutoMinigame = false end
+end)
+
+CreateToggle("Auto Rebirth", function(val)
+	if val then StartAutoRebirth() else State.AutoRebirth = false end
+end)
+
+CreateButton("Rebirth Once", function()
+	SafeFire(Remotes.RebirthEvent)
+	SafeFire(Remotes.RebirthEvent, true)
+end)
+
+CreateToggle("Auto Claim Titles", function(val)
+	if val then StartAutoTitles() else State.AutoTitles = false end
+end)
+
+CreateToggle("Auto Claim Rewards/Orbs", function(val)
+	if val then StartAutoClaimRewards() else State.AutoClaimRewards = false end
+end)
